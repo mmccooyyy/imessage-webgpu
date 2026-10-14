@@ -52,6 +52,8 @@ pub struct Measurements {
     /// Parallel to `scene.messages`.
     pub messages: Vec<Measured>,
     pub date_pill: Option<Measured>,
+    /// Parallel to `scene.pills` (presence pills under the date pill).
+    pub pills: Vec<Measured>,
     pub delivered_label: Measured,
 }
 
@@ -156,6 +158,19 @@ pub fn layout(scene: &Scene, measured: &Measurements, viewport: (f32, f32)) -> L
             h,
         });
         y += PILL_TOP + h + BETWEEN_GAP;
+    }
+
+    // Presence pills ("Sam joined" / "Sam left"), stacked under the date pill.
+    for (_, m) in scene.pills.iter().zip(measured.pills.iter()) {
+        let w = m.width + 2.0 * PILL_PAD_H;
+        let h = m.height + 2.0 * PILL_PAD_V;
+        out.pills.push(PillGeom {
+            x: (viewport.0 - w) / 2.0,
+            y,
+            w,
+            h,
+        });
+        y += h + GROUP_GAP;
     }
 
     // Bubbles: group consecutive same-side messages.

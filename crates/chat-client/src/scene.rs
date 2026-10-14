@@ -41,6 +41,9 @@ pub enum Banner {
 pub struct Scene {
     /// Conversation-start pill label (e.g. "Today 4:12 PM"). `None` hides it.
     pub date_pill: Option<String>,
+    /// Transcript pills stacked under the date pill: presence events
+    /// ("Sam joined" / "Sam left"), in order.
+    pub pills: Vec<String>,
     pub messages: Vec<Message>,
     /// Display name of the peer currently typing, if any.
     pub typing_peer: Option<String>,
@@ -53,6 +56,7 @@ impl Scene {
     /// whether the frame is dirty (typing-dot animation aside).
     pub fn same_as(&self, other: &Scene) -> bool {
         self.date_pill == other.date_pill
+            && self.pills == other.pills
             && self.typing_peer == other.typing_peer
             && self.banner == other.banner
             && self.messages.len() == other.messages.len()
@@ -71,8 +75,10 @@ impl Scene {
     /// The spec-mock conversation (spec art_d3wTgg6t §5): proves shaped text,
     /// grouped bubbles, tails, "Delivered", emoji fallback, and typing dots
     /// before any socket exists.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub fn demo() -> Self {
         Scene {
+            pills: Vec::new(),
             date_pill: Some("Today 4:12 PM".to_string()),
             messages: vec![
                 Message {

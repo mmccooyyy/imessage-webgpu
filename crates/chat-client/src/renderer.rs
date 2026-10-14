@@ -286,6 +286,16 @@ impl Renderer {
                 height: size.height,
             });
         }
+        // Presence pills (parallel to scene.pills).
+        for text in &scene.pills {
+            let size = self
+                .text
+                .shape(text, crate::text::small_metrics(), f32::MAX);
+            measured.pills.push(Measured {
+                width: size.width,
+                height: size.height,
+            });
+        }
         // Delivered label.
         {
             let size = self
@@ -328,21 +338,27 @@ impl Renderer {
             buffer_ix += 1;
         }
 
-        // Date pill text.
-        if scene.date_pill.is_some() {
-            if let Some(pill) = self.frame_layout.pills.first().copied() {
-                specs.push(RunSpec {
-                    buffer_ix,
-                    run: TextRun {
-                        x: pill.x + layout::PILL_PAD_H,
-                        y: pill.y + layout::PILL_PAD_V,
-                        role: TextRole::Pill,
-                    },
-                    clip: Some([pill.x, pill.y, pill.x + pill.w, pill.y + pill.h]),
-                    pinned: false,
-                });
-                buffer_ix += 1;
+        // Pill text. frame_layout.pills is [date?, events…] (layout stacks the
+        // date pill first); shaped-buffer order matches: date?, events….
+        let date_first = scene.date_pill.is_some();
+        let shaped_pills = (date_first as usize) + scene.pills.len();
+        for (pill_ix, pill) in self.frame_layout.pills.iter().enumerate() {
+            // Defensive: layout() should never emit a pill without a matching
+            // shaped buffer, but a missing run must not corrupt buffer indexing.
+            if pill_ix >= shaped_pills {
+                continue;
             }
+            specs.push(RunSpec {
+                buffer_ix,
+                run: TextRun {
+                    x: pill.x + layout::PILL_PAD_H,
+                    y: pill.y + layout::PILL_PAD_V,
+                    role: TextRole::Pill,
+                },
+                clip: Some([pill.x, pill.y, pill.x + pill.w, pill.y + pill.h]),
+                pinned: false,
+            });
+            buffer_ix += 1;
         }
 
         // Delivered label (layout() emits at most one, under the last
