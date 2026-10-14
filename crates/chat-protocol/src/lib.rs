@@ -93,3 +93,199 @@ pub enum AnyFrame {
     Known(ServerFrame),
     Unknown(serde_json::Value),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const CMID: &str = "67e55044-22b1-4f2f-9a0b-12f45a1c7f3d";
+
+    fn cmid() -> Uuid {
+        Uuid::parse_str(CMID).expect("test cmid")
+    }
+
+    fn sample_msg() -> Msg {
+        Msg {
+            id: "m_5".into(),
+            from: "u_2".into(),
+            name: "Sam".into(),
+            text: "hi".into(),
+            ts: 1_760_000_000,
+            seq: 413,
+        }
+    }
+
+    fn sample_server_msg() -> ServerFrame {
+        let m = sample_msg();
+        ServerFrame::Msg {
+            id: m.id,
+            from: m.from,
+            name: m.name,
+            text: m.text,
+            ts: m.ts,
+            seq: m.seq,
+        }
+    }
+
+    /// Serialize → deserialize → compare, and assert the `"t"` tag survived.
+    fn round_trip<T>(value: T, tag: &str)
+    where
+        T: Serialize + for<'de> Deserialize<'de> + PartialEq + std::fmt::Debug,
+    {
+        let json = serde_json::to_string(&value).expect("serialize");
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+        assert_eq!(parsed["t"], tag, "tag key must be \"t\": {json}");
+        let back: T = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, value);
+    }
+
+    #[test]
+    fn client_frames_round_trip() {
+        round_trip(
+            ClientFrame::Hello {
+                name: "Matt".into(),
+            },
+            "hello",
+        );
+        round_trip(
+            ClientFrame::Msg {
+                cmid: cmid(),
+                text: "hi".into(),
+            },
+            "msg",
+        );
+        round_trip(ClientFrame::Typing { on: true }, "typing");
+        round_trip(ClientFrame::Resume { last_seq: 412 }, "resume");
+    }
+
+    #[test]
+    fn server_frames_round_trip() {
+        let peer = Peer {
+            id: "u_2".into(),
+            name: "Sam".into(),
+        };
+        round_trip(
+            ServerFrame::Welcome {
+                you: "u_1".into(),
+                users: vec![peer.clone()],
+                history: vec![sample_msg()],
+                seq: 412,
+            },
+            "welcome",
+        );
+        round_trip(sample_server_msg(), "msg");
+        round_trip(
+            ServerFrame::Ack {
+                cmid: cmid(),
+                id: "m_5".into(),
+                seq: 413,
+            },
+            "ack",
+        );
+        round_trip(
+            ServerFrame::Typing {
+                user: "u_2".into(),
+                on: true,
+            },
+            "typing",
+        );
+        round_trip(
+            ServerFrame::Presence {
+                join: Some(peer.clone()),
+                leave: None,
+            },
+            "presence",
+        );
+        round_trip(
+            ServerFrame::Presence {
+                join: None,
+                leave: Some("u_2".into()),
+            },
+            "presence",
+        );
+        round_trip(
+            ServerFrame::Error {
+                code: "no_hello".into(),
+                message: "first frame must be hello".into(),
+            },
+            "error",
+        );
+    }
+
+    #[test]
+    fn unknown_tags_land_in_the_tolerant_variant() {
+        let frame: AnyFrame =
+            serde_json::from_str(r#"{"t":"hologram","power":9001}"#).expect("tolerant parse");
+        assert!(matches!(frame, AnyFrame::Unknown(_)));
+
+        // Known frames still come through the envelope as Known.
+        let frame: AnyFrame =
+            serde_json::from_str(r#"{"t":"typing","user":"u_2","on":false}"#).expect("known");
+        assert_eq!(
+            frame,
+            AnyFrame::Known(ServerFrame::Typing {
+                user: "u_2".into(),
+                on: false
+            })
+        );
+
+        // A frame that fails its known shape (bad uuid) also degrades, not errors.
+        let frame: AnyFrame =
+            serde_json::from_str(r#"{"t":"ack","cmid":"not-a-uuid","id":"m_5","seq":9}"#)
+                .expect("tolerant parse");
+        assert!(matches!(frame, AnyFrame::Unknown(_)));
+    }
+
+    #[test]
+    fn unknown_payload_is_preserved_verbatim() {
+        let frame: AnyFrame = serde_json::from_str(r#"{"t":"hologram","power":9001}"#).unwrap();
+        match frame {
+            AnyFrame::Unknown(value) => {
+                assert_eq!(value, json!({"t": "hologram", "power": 9001}));
+            }
+            AnyFrame::Known(_) => panic!("unknown tag must not parse as a known frame"),
+        }
+    }
+
+    #[test]
+    fn strict_server_frame_rejects_unknown_tags() {
+        let result = serde_json::from_str::<ServerFrame>(r#"{"t":"hologram"}"#);
+        assert!(
+            result.is_err(),
+            "tolerance is AnyFrame's job, not ServerFrame's"
+        );
+    }
+
+    #[test]
+    fn cmid_survives_byte_identical() {
+        let frame = ClientFrame::Msg {
+            cmid: cmid(),
+            text: "hi".into(),
+        };
+        let first = serde_json::to_string(&frame).unwrap();
+        assert!(first.contains(CMID));
+
+        let back: ClientFrame = serde_json::from_str(&first).unwrap();
+        let second = serde_json::to_string(&back).unwrap();
+        assert_eq!(first, second, "re-serialization must be byte-identical");
+
+        match back {
+            ClientFrame::Msg { cmid, .. } => assert_eq!(cmid.to_string(), CMID),
+            other => panic!("wrong variant: {other:?}"),
+        }
+
+        // The server's ack echoes the cmid unchanged too.
+        let ack = ServerFrame::Ack {
+            cmid: cmid(),
+            id: "m_5".into(),
+            seq: 413,
+        };
+        let ack_json = serde_json::to_string(&ack).unwrap();
+        let ack_back: ServerFrame = serde_json::from_str(&ack_json).unwrap();
+        match ack_back {
+            ServerFrame::Ack { cmid, .. } => assert_eq!(cmid.to_string(), CMID),
+            other => panic!("wrong variant: {other:?}"),
+        }
+    }
+}
