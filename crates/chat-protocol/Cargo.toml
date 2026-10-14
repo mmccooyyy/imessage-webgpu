@@ -1,0 +1,11 @@
+[package]
+name = "chat-protocol"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Wire types shared by the chat client and server — JSON frames tagged by \"t\""
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }

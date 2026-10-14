@@ -1,0 +1,8 @@
+# Pinned toolchain for this repo (spec art_d3wTgg6t §3): stable Rust with the
+# wasm32-unknown-unknown target plus rustfmt/clippy, so any rustup-driven
+# rustc/cargo invocation reproduces the same environment.
+[toolchain]
+channel = "stable"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]
