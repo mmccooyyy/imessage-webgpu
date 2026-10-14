@@ -1,0 +1,5 @@
+# Trunk builds the chat-client wasm bundle into the workspace-root dist/,
+# which chat-server serves in production (spec art_d3wTgg6t §3).
+[build]
+target = "crates/chat-client/index.html"
+dist = "dist"

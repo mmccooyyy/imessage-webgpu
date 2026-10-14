@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  native:
+    name: fmt · clippy · test · guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable + wasm32 target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: tests
+        run: cargo test --workspace
+
+      - name: Dependency guard (no tokio/axum in client crates; no gloo in protocol/core)
+        run: ./scripts/check-deps.sh
+
+      - name: Server smoke test (boot + curl /healthz)
+        run: ./scripts/smoke-server.sh
+
+  wasm:
+    name: trunk build (webgpu + webgl2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable + wasm32 target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install trunk 0.21.14 (prebuilt)
+        run: |
+          curl -fsSL -o /tmp/trunk.tar.gz \
+            https://github.com/trunk-rs/trunk/releases/download/v0.21.14/trunk-x86_64-unknown-linux-gnu.tar.gz
+          mkdir -p /tmp/trunk-x && tar -xzf /tmp/trunk.tar.gz -C /tmp/trunk-x
+          install -m 0755 "$(find /tmp/trunk-x -type f -name trunk)" "$HOME/.cargo/bin/trunk"
+          trunk --version
+
+      - name: Install wasm-bindgen-cli 0.2.129 (matches the pinned wasm-bindgen crate)
+        run: |
+          curl -fsSL -o /tmp/wbg.tar.gz \
+            https://github.com/rustwasm/wasm-bindgen/releases/download/0.2.129/wasm-bindgen-0.2.129-x86_64-unknown-linux-musl.tar.gz
+          mkdir -p /tmp/wbg-x && tar -xzf /tmp/wbg.tar.gz -C /tmp/wbg-x
+          install -m 0755 "$(find /tmp/wbg-x -type f -name wasm-bindgen)" "$HOME/.cargo/bin/wasm-bindgen"
+          wasm-bindgen --version
+
+      - name: trunk build --release (WebGPU, default features)
+        run: trunk build --release
+
+      - name: trunk build --release --no-default-features --features webgl (WebGL2 fallback)
+        run: trunk build --release --no-default-features --features webgl
+
+      - name: dist/ produced
+        run: ls -la dist/

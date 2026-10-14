@@ -1,0 +1,9 @@
+[package]
+name = "chat-core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Client state machine: store, reducer, backoff, layout math — native-testable, no wasm deps"
+
+[dependencies]
+chat-protocol = { workspace = true }

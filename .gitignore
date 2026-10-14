@@ -1,0 +1,9 @@
+# Rust
+/target/
+
+# trunk build output (served by chat-server in prod)
+/dist/
+
+# editor droppings
+.idea/
+.vscode/

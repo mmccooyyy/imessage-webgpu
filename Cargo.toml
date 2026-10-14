@@ -1,0 +1,45 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/chat-protocol",
+    "crates/chat-core",
+    "crates/chat-client",
+    "crates/chat-server",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Every stack version pin lives here (spec art_d3wTgg6t §3/§9) so downstream
+# PRs never touch this manifest — crates reference these via
+# `dep = { workspace = true }`. tokio/axum must never resolve into a client
+# crate (CI guard: scripts/check-deps.sh).
+[workspace.dependencies]
+# --- shared both sides (protocol types) ---
+chat-protocol = { path = "crates/chat-protocol" }
+chat-core = { path = "crates/chat-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+uuid = { version = "1.28.0", features = ["v4", "serde", "js"] }
+
+# --- client-side only ---
+wgpu = { version = "30.0.1", default-features = false, features = ["wgsl"] }
+glyphon = "0.12.0"
+cosmic-text = "0.19.0"
+# Exact pin: wasm-bindgen-cli must match the wasm-bindgen crate version.
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "0.4.79"
+web-sys = "0.3.106"
+gloo-net = { version = "0.7.0", features = ["websocket"] }
+console_error_panic_hook = "0.1.7"
+log = "0.4.27"
+wasm-logger = "0.2.0"
+web-time = "1.1.0"
+
+# --- server-side only ---
+tokio = { version = "1.53.3", features = ["full"] }
+axum = { version = "0.8.9", features = ["ws"] }
+tower-http = { version = "0.7.1", features = ["fs"] }
+tower = { version = "0.5.2", features = ["util"] }

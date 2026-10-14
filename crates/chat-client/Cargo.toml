@@ -1,0 +1,31 @@
+[package]
+name = "chat-client"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Browser shell: wgpu + glyphon renderer boot, web-sys glue, DOM overlay entry"
+
+[dependencies]
+chat-protocol = { workspace = true }
+chat-core = { workspace = true }
+wgpu = { workspace = true }
+glyphon = { workspace = true }
+cosmic-text = { workspace = true }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+web-sys = { workspace = true, features = ["Window", "Document", "Element"] }
+gloo-net = { workspace = true }
+console_error_panic_hook = { workspace = true }
+log = { workspace = true }
+wasm-logger = { workspace = true }
+web-time = { workspace = true }
+
+# The WebGPU and WebGL2 wasm builds are separate feature sets of this crate
+# (wgpu 30's `webgpu`/`webgl` features, verified against its manifest):
+#   trunk build                                          → WebGPU bundle
+#   trunk build --no-default-features --features webgl   → WebGL2 fallback
+# The two never combine: CI builds each with the other disabled.
+[features]
+default = ["webgpu"]
+webgpu = ["wgpu/webgpu"]
+webgl = ["wgpu/webgl"]
