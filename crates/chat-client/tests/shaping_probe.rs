@@ -3,14 +3,16 @@
 
 use cosmic_text::{Attrs, Buffer, Family, Metrics, Shaping};
 
+/// Compile-time-embedded font, identical to the bytes the renderer loads.
+const FONT_INTER_REGULAR: &[u8] = include_bytes!("../assets/Inter-Regular.ttf");
+
 #[test]
 fn body_text_measures_nonzero() {
     let mut font_system = cosmic_text::FontSystem::new();
     font_system.db_mut().load_font_data(
-        std::fs::read(
-            "/home/user/work/imessage-webgpu/crates/chat-client/assets/Inter-Regular.ttf",
-        )
-        .expect("Inter-Regular.ttf readable"),
+        // Same bytes the runtime text layer embeds via include_bytes! —
+        // no filesystem dependency, works in any checkout.
+        FONT_INTER_REGULAR.to_vec(),
     );
     font_system.db_mut().set_sans_serif_family("Inter");
 
