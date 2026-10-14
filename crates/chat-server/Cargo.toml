@@ -7,9 +7,20 @@ description = "Axum host: /ws + static dist/ + /healthz; in-memory room state"
 
 [dependencies]
 chat-protocol = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true }
+# Splits `axum::extract::ws::WebSocket` into sink pump / stream reader halves.
+# Pinned here rather than in the root manifest, which this crate's PRs may not
+# touch.
+futures-util = "0.3.31"
 
 [dev-dependencies]
 tower = { workspace = true }
+# In-process ws client for the two-client integration tests: connects over
+# loopback to an OS-assigned port. Version matches axum 0.8.9's own ws
+# dependency so the lock holds a single tungstenite stack. Pinned here rather
+# than in the root manifest, which this crate's PRs may not touch.
+tokio-tungstenite = "0.29"
