@@ -99,6 +99,15 @@ four-crate architecture changes; only the client's URL derivation gains one
 build-time override. Record the topology change in the deploy PR before
 integration work (todo_9is44aoE) consumes it.
 
-> Spike verdict: recorded in the deploy PR once verified — this line ships
-> only after `wss://<hosted>/ws` is proven against the live hosted URL.
+> Spike verdict (2026-10-14, verified against the live hosted URL
+> https://063rvk6mz2-8080.hosted.obvious.ai): **single-origin works** — the
+> hosted edge forwards WebSocket upgrades. `GET /` serves `dist/`,
+> `/healthz` → `ok`, and an HTTP/1.1 upgrade request to `/ws` returns
+> `101 Switching Protocols`; a browser `wss://` socket completed
+> hello → `{"t":"welcome",...}` (screenshot evidence in PR #5). No fallback
+> needed; integration (todo_9is44aoE) can rely on the single-origin topology.
+>
+> Curl caveat: over HTTP/2 the edge answers a raw `Upgrade` request with
+> `400` (h2 cannot carry a plain Upgrade) — verify with `curl --http1.1`.
+> Browsers negotiate `wss://` over HTTP/1.1, so this does not affect the app.
 
