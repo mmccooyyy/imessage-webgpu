@@ -166,6 +166,7 @@ dependencies = [
  "gloo-net",
  "glyphon",
  "log",
+ "naga",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-logger",

@@ -13,12 +13,29 @@ glyphon = { workspace = true }
 cosmic-text = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
-web-sys = { workspace = true, features = ["Window", "Document", "Element"] }
+web-sys = { workspace = true, features = [
+    "Window",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "HtmlCanvasElement",
+    "EventTarget",
+    "Event",
+    "WheelEvent",
+    "KeyboardEvent",
+    "MediaQueryList",
+] }
 gloo-net = { workspace = true }
 console_error_panic_hook = { workspace = true }
 log = { workspace = true }
 wasm-logger = { workspace = true }
 web-time = { workspace = true }
+
+# Native test-only: parse the WGSL shaders with the same naga the runtime
+# uses. The browser WebGPU backend compiles shaders lazily — a broken shader
+# there degrades to silent no-op draws, so CI catches it by parsing here.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+naga = { version = "30.0.1", default-features = false, features = ["wgsl-in"] }
 
 # The WebGPU and WebGL2 wasm builds are separate feature sets of this crate
 # (wgpu 30's `webgpu`/`webgl` features, verified against its manifest):

@@ -14,11 +14,13 @@
         margin: 0;
         height: 100%;
         background: #fff;
+        overflow: hidden;
       }
       #app {
         display: block;
         width: 100%;
         height: 100%;
+        touch-action: none;
       }
       #overlay {
         position: fixed;
@@ -26,11 +28,17 @@
         padding: 8px 16px;
         font: 14px/1.4 system-ui, sans-serif;
         color: #6b7280;
+        pointer-events: none;
+        user-select: none;
       }
     </style>
   </head>
   <body>
     <canvas id="app" aria-label="conversation canvas"></canvas>
     <div id="overlay"></div>
+    <!-- No capability chooser here: this page is trunk's entry for BOTH
+         feature builds (dist/webgpu/ and dist/webgl2/ self-boot when hit
+         directly). The chooser lives on the assembled root dist/index.html
+         that scripts/build-dist.sh writes. -->
   </body>
 </html>
