@@ -7,3 +7,5 @@ description = "Client state machine: store, reducer, backoff, layout math — na
 
 [dependencies]
 chat-protocol = { workspace = true }
+# cmid key type only — the caller (shell or tests) generates the uuid.
+uuid = { workspace = true }
