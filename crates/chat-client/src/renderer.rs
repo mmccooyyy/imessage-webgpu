@@ -76,6 +76,8 @@ pub struct Renderer {
     /// CSS→device px ratio at the render boundary: dpr, reduced when the
     /// backing store is clamped to the adapter's max texture extent.
     scale: f32,
+    /// `?text=0` — diagnostic: skip the glyphon pass entirely.
+    text_pass_disabled: bool,
     suboptimal: bool,
 }
 
@@ -83,7 +85,11 @@ impl Renderer {
     /// The single idempotent init path: instance → adapter → device → surface
     /// → pipelines → font atlas. Backend selection comes from the compile-time
     /// feature (webgpu | webgl); see `app.rs` for the JS-side chooser.
-    pub async fn new(canvas: HtmlCanvasElement, msaa_samples: u32) -> Result<Self, InitError> {
+    pub async fn new(
+        canvas: HtmlCanvasElement,
+        msaa_samples: u32,
+        text_pass_disabled: bool,
+    ) -> Result<Self, InitError> {
         let backends = if cfg!(feature = "webgl") {
             wgpu::Backends::GL
         } else {
@@ -194,6 +200,7 @@ impl Renderer {
             viewport_css: (css_w, css_h),
             dpr,
             scale: w as f32 / css_w.max(1.0),
+            text_pass_disabled,
             suboptimal: false,
         })
     }
@@ -416,10 +423,18 @@ impl Renderer {
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         // Text pass prep (atlas grow can fail → treat as frame-skip, not panic).
-        let prepared = self.prepare_text(scroll);
-        if let Err(e) = prepared {
-            log::error!("text prepare failed: {e:?}");
-        }
+        // `?text=0` skips glyphon entirely (backend isolation diagnostic).
+        let prepared: Result<(), glyphon::PrepareError> = if self.text_pass_disabled {
+            Ok(())
+        } else {
+            match self.prepare_text(scroll) {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    log::error!("text prepare failed: {e:?}");
+                    Err(e)
+                }
+            }
+        };
 
         let mut encoder = self
             .device
@@ -452,7 +467,7 @@ impl Renderer {
                 multiview_mask: None,
             });
             self.bubbles.draw(&mut pass, count);
-            if prepared.is_ok() {
+            if prepared.is_ok() && !self.text_pass_disabled {
                 self.text
                     .text_renderer
                     .render(&self.text.atlas, &self.text.viewport, &mut pass)

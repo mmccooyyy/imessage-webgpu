@@ -18,6 +18,24 @@ use crate::scene::Scene;
 /// The requestAnimationFrame callback type, shared by the loop scaffolding.
 type FrameClosure = Closure<dyn FnMut(f64)>;
 
+/// True when `?text=0` — skip the glyphon pass entirely. Diagnostic switch
+/// for backend isolation: if bubbles present without text, the failure is in
+/// the text pipeline; if the canvas is still black, presentation itself is
+/// failing (headless SwiftShader's known signature).
+fn text_disabled_from_query() -> bool {
+    web_sys::window()
+        .and_then(|w| w.location().search().ok())
+        .and_then(|search| {
+            search
+                .trim_start_matches('?')
+                .split('&')
+                .filter_map(|kv| kv.split_once('='))
+                .find(|(k, _)| *k == "text")
+                .map(|(_, v)| v == "0")
+        })
+        .unwrap_or(false)
+}
+
 /// MSAA sample count from the `?msaa=` query param (0 → 1, disables MSAA).
 /// Default 4×; the flag is an escape hatch for adapters whose MSAA resolve
 /// misbehaves (some headless SwiftShader configurations).
@@ -47,7 +65,13 @@ pub fn boot() -> Result<(), JsValue> {
         .dyn_into::<HtmlCanvasElement>()?;
 
     wasm_bindgen_futures::spawn_local(async move {
-        match Renderer::new(canvas.clone(), msaa_from_query()).await {
+        match Renderer::new(
+            canvas.clone(),
+            msaa_from_query(),
+            text_disabled_from_query(),
+        )
+        .await
+        {
             Ok(renderer) => {
                 clear_fallback_flag();
                 let backend = renderer.backend_name.clone();
@@ -243,7 +267,7 @@ impl App {
         wasm_bindgen_futures::spawn_local(async move {
             let rc = APP.with(|slot| slot.borrow().as_ref().map(Rc::clone));
             if let Some(rc) = rc {
-                match Renderer::new(canvas, msaa_from_query()).await {
+                match Renderer::new(canvas, msaa_from_query(), text_disabled_from_query()).await {
                     Ok(mut renderer) => {
                         let mut app = rc.borrow_mut();
                         renderer.relayout(&app.scene);
@@ -276,7 +300,8 @@ impl App {
             wasm_bindgen_futures::spawn_local(async move {
                 let rc = APP.with(|slot| slot.borrow().as_ref().map(Rc::clone));
                 if let Some(rc) = rc {
-                    match Renderer::new(canvas, msaa_from_query()).await {
+                    match Renderer::new(canvas, msaa_from_query(), text_disabled_from_query()).await
+                    {
                         Ok(mut renderer) => {
                             let mut app = rc.borrow_mut();
                             renderer.relayout(&app.scene);
