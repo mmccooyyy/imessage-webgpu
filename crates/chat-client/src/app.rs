@@ -286,6 +286,13 @@ impl App {
         }
 
         let app = Rc::new(RefCell::new(app));
+
+        // `?name=` auto-join: kick the first connection exactly as the join
+        // card would — the store's tick only retries from Reconnecting, so
+        // without this a scripted demo hangs in Connecting forever.
+        if app.borrow().name.is_some() {
+            app.borrow_mut().connect();
+        }
         App::wire_events(&app, &document, &window);
         APP.with(|slot| *slot.borrow_mut() = Some(Rc::clone(&app)));
 
