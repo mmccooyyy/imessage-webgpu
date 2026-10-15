@@ -84,6 +84,11 @@ impl Overlay {
         Some(text)
     }
 
+    /// Restore a draft the store refused to accept (see `App::handle_send`).
+    pub fn set_msg_input(&self, value: &str) {
+        self.msg_input.set_value(value);
+    }
+
     /// Per-frame sync from store-derived UI state. The DOM is the mirror,
     /// not the source of truth. `send_dimmed` grays the send affordance
     /// without disabling it (Reconnecting sends queue locally, spec §5 mock).

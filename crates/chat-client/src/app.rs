@@ -533,7 +533,15 @@ impl App {
             self.typing_active = false;
             self.send_frame(ClientFrame::Typing { on: false });
         }
-        let effects = self.store.send(text, cmid, now);
+        let effects = self.store.send(text.clone(), cmid, now);
+        if effects.is_empty() {
+            // The store refused the send (initial Connecting window between
+            // reconnect attempts). Restore the draft — a mid-attempt refusal
+            // must never eat the user's text silently (spec §5: the input
+            // stays usable while reconnecting).
+            self.overlay.set_msg_input(&text);
+            return;
+        }
         self.run_effects(effects, now);
     }
 
