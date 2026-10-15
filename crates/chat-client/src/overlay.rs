@@ -85,10 +85,18 @@ impl Overlay {
     }
 
     /// Per-frame sync from store-derived UI state. The DOM is the mirror,
-    /// not the source of truth.
-    pub fn sync(&self, input_enabled: bool, presence_text: &str) {
+    /// not the source of truth. `send_dimmed` grays the send affordance
+    /// without disabling it (Reconnecting sends queue locally, spec §5 mock).
+    pub fn sync(&self, input_enabled: bool, send_dimmed: bool, presence_text: &str) {
         self.msg_input.set_disabled(!input_enabled);
         self.send_btn.set_disabled(!input_enabled);
+        let classes = self.send_btn.class_list();
+        let class_op = if send_dimmed {
+            classes.add_1("dimmed")
+        } else {
+            classes.remove_1("dimmed")
+        };
+        class_op.unwrap_or_else(|e| log::warn!("send-btn class toggle failed: {e:?}"));
         self.presence.set_text_content(Some(presence_text));
     }
 }

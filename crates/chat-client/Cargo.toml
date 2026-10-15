@@ -30,9 +30,12 @@ web-sys = { workspace = true, features = [
     "HtmlButtonElement",
     "CssStyleDeclaration",
     "Performance",
+    "DomTokenList",
 ] }
 gloo-net = { workspace = true }
 uuid = { workspace = true }
+# js_sys::Date for the conversation-start time pill (browser-local time).
+js-sys = "0.3"
 # StreamExt::split / SinkExt::send for the gloo-net websocket (gloo-net does
 # not re-export the futures traits). Shell-only; protocol/core stay futures-free.
 futures = { version = "0.3", default-features = false, features = ["std"] }
