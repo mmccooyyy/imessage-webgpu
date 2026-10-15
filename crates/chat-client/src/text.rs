@@ -74,9 +74,12 @@ impl TextLayer {
         }
     }
 
-    /// Shape one run at `wrap_width`, cache its buffer, return its size.
-    /// The renderer re-shapes only when a relayout happens (scene/size change).
-    pub fn shape(&mut self, text: &str, metrics: Metrics, wrap_width: f32) -> TextSize {
+    /// Shape one run at `wrap_width`, cache its buffer, return its buffer
+    /// index and size. Specs must reference the returned index — buffer order
+    /// is shape-call order, and callers shape conditionally (e.g. "Delivered"
+    /// is measured even when no label is emitted), so a hand-maintained
+    /// counter silently desyncs.
+    pub fn shape(&mut self, text: &str, metrics: Metrics, wrap_width: f32) -> (usize, TextSize) {
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
         buffer.set_size(Some(wrap_width), None);
         buffer.set_text(
@@ -94,7 +97,8 @@ impl TextLayer {
             height += run.line_height;
         }
         self.buffers.push(buffer);
-        TextSize { width, height }
+        let ix = self.buffers.len() - 1;
+        (ix, TextSize { width, height })
     }
 
     pub fn clear_buffers(&mut self) {

@@ -52,6 +52,8 @@ pub struct Measurements {
     /// Parallel to `scene.messages`.
     pub messages: Vec<Measured>,
     pub date_pill: Option<Measured>,
+    /// Parallel to `scene.pills` (presence pills under the date pill).
+    pub pills: Vec<Measured>,
     pub delivered_label: Measured,
 }
 
@@ -138,12 +140,21 @@ fn clamp_w(w: f32, max_w: f32) -> f32 {
     w.min(max_w)
 }
 
+/// The banner pill pins to the viewport top (banner_pill: y=10, h≈25) and
+/// draws before content — the pill stack must start below it, or the pills
+/// overdraw the banner during reconnects.
+const BANNER_STACK_TOP: f32 = 45.0;
+
 /// Lay out a scene. `viewport` is the conversation surface size in CSS px.
 pub fn layout(scene: &Scene, measured: &Measurements, viewport: (f32, f32)) -> Layout {
     let max_bubble_w = MAX_BUBBLE_FRACTION * viewport.0;
     let inner_w = viewport.0 - 2.0 * CONV_MARGIN;
     let mut out = Layout::default();
-    let mut y = 0.0f32;
+    let mut y = if scene.banner.is_some() {
+        BANNER_STACK_TOP
+    } else {
+        0.0
+    };
 
     // Date pill.
     if let (Some(_), Some(m)) = (&scene.date_pill, measured.date_pill) {
@@ -156,6 +167,19 @@ pub fn layout(scene: &Scene, measured: &Measurements, viewport: (f32, f32)) -> L
             h,
         });
         y += PILL_TOP + h + BETWEEN_GAP;
+    }
+
+    // Presence pills ("Sam joined" / "Sam left"), stacked under the date pill.
+    for (_, m) in scene.pills.iter().zip(measured.pills.iter()) {
+        let w = m.width + 2.0 * PILL_PAD_H;
+        let h = m.height + 2.0 * PILL_PAD_V;
+        out.pills.push(PillGeom {
+            x: (viewport.0 - w) / 2.0,
+            y,
+            w,
+            h,
+        });
+        y += h + GROUP_GAP;
     }
 
     // Bubbles: group consecutive same-side messages.

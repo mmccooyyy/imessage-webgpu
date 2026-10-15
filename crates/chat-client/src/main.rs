@@ -7,11 +7,19 @@
 
 mod layout;
 mod scene;
+// Shell helpers are consumed by the wasm-only modules; on the host they exist
+// so their unit tests run with plain `cargo test`.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod ux;
 
 #[cfg(target_arch = "wasm32")]
 mod app;
 #[cfg(target_arch = "wasm32")]
 mod bubbles;
+#[cfg(target_arch = "wasm32")]
+mod net;
+#[cfg(target_arch = "wasm32")]
+mod overlay;
 #[cfg(target_arch = "wasm32")]
 mod renderer;
 #[cfg(target_arch = "wasm32")]

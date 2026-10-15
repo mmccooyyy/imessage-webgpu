@@ -5,37 +5,203 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>iMessage</title>
     <!-- trunk links the chat-client wasm here. The canvas owns the
-         conversation surface; the DOM overlay owns nav bar / input / send
-         (spec art_d3wTgg6t §5). -->
+         conversation surface; the DOM overlay owns the nav bar, join card,
+         and input bar (spec art_d3wTgg6t §5). Text entry is a real <input>
+         for IME, clipboard, and mobile keyboards. -->
     <link data-trunk rel="rust" />
     <style>
+      :root {
+        --nav-h: 44px;
+        --input-h: 56px;
+        --imessage-blue: #0a84ff;
+      }
       html,
       body {
         margin: 0;
         height: 100%;
         background: #fff;
         overflow: hidden;
+        font: 14px/1.4 -apple-system, system-ui, sans-serif;
       }
+      /* The canvas is the conversation surface: between the nav bar and the
+         input bar. The renderer reads its client size and re-configures. */
       #app {
         display: block;
+        position: fixed;
+        inset: var(--nav-h) 0 var(--input-h) 0;
         width: 100%;
-        height: 100%;
+        height: calc(100% - var(--nav-h) - var(--input-h));
         touch-action: none;
       }
-      #overlay {
+
+      /* Nav bar: title + presence (DOM-owned, spec §5). */
+      #nav {
+        position: fixed;
+        inset: 0 0 auto 0;
+        height: var(--nav-h);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 14px;
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid #e5e5ea;
+        box-sizing: border-box;
+        z-index: 3;
+      }
+      #nav .title {
+        font-size: 16px;
+        font-weight: 600;
+        color: #111;
+      }
+      #boot-status {
+        font-size: 11px;
+        color: #8e8e93;
+      }
+      #presence {
+        font-size: 12px;
+        color: #8e8e93;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 50%;
+      }
+
+      /* Input bar: message entry + send (DOM-owned, spec §5). */
+      #input-bar {
         position: fixed;
         inset: auto 0 0 0;
-        padding: 8px 16px;
-        font: 14px/1.4 system-ui, sans-serif;
-        color: #6b7280;
-        pointer-events: none;
-        user-select: none;
+        height: var(--input-h);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 12px calc(6px + env(safe-area-inset-bottom)) 12px;
+        background: rgba(255, 255, 255, 0.96);
+        border-top: 1px solid #e5e5ea;
+        box-sizing: border-box;
+        z-index: 3;
+      }
+      #msg-input {
+        flex: 1;
+        height: 34px;
+        border: 1px solid #d1d1d6;
+        border-radius: 17px;
+        padding: 0 14px;
+        font: inherit;
+        font-size: 15px;
+        outline: none;
+      }
+      #msg-input:focus-visible {
+        border-color: var(--imessage-blue);
+      }
+      #msg-input:disabled {
+        background: #f2f2f7;
+        color: #8e8e93;
+      }
+      #send-btn {
+        height: 34px;
+        padding: 0 16px;
+        border: none;
+        border-radius: 17px;
+        background: var(--imessage-blue);
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      #send-btn:focus-visible {
+        outline: 2px solid var(--imessage-blue);
+        outline-offset: 2px;
+      }
+      #send-btn:disabled {
+        background: #c7c7cc;
+        cursor: default;
+      }
+
+      /* Join card: display-name gate before the first hello (spec §5). */
+      #join-card {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f9f9f9;
+        z-index: 4;
+      }
+      #join-card .card {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 28px 24px;
+        background: #fff;
+        border-radius: 14px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+        width: min(320px, 84vw);
+        box-sizing: border-box;
+      }
+      #join-card h1 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 700;
+        text-align: center;
+        color: #111;
+      }
+      #name-input {
+        height: 38px;
+        border: 1px solid #d1d1d6;
+        border-radius: 10px;
+        padding: 0 12px;
+        font: inherit;
+        font-size: 15px;
+        outline: none;
+      }
+      #name-input:focus-visible {
+        border-color: var(--imessage-blue);
+      }
+      #join-btn {
+        height: 38px;
+        border: none;
+        border-radius: 10px;
+        background: var(--imessage-blue);
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      #join-btn:focus-visible {
+        outline: 2px solid var(--imessage-blue);
+        outline-offset: 2px;
+      }
+      #join-error {
+        color: #ff3b30;
+        font-size: 13px;
+        text-align: center;
+        min-height: 1em;
+      }
+      [hidden] {
+        display: none !important;
       }
     </style>
   </head>
   <body>
+    <div id="nav">
+      <span class="title">iMessage</span>
+      <span id="boot-status"></span>
+      <span id="presence"></span>
+    </div>
     <canvas id="app" aria-label="conversation canvas"></canvas>
-    <div id="overlay"></div>
+    <div id="input-bar">
+      <input id="msg-input" type="text" autocomplete="off" placeholder="iMessage" disabled />
+      <button id="send-btn" disabled>Send</button>
+    </div>
+    <div id="join-card">
+      <form class="card" id="join-form">
+        <h1>iMessage</h1>
+        <input id="name-input" type="text" autocomplete="off" placeholder="Your name" required />
+        <button id="join-btn" type="submit">Join</button>
+        <div id="join-error"></div>
+      </form>
+    </div>
     <!-- No capability chooser here: this page is trunk's entry for BOTH
          feature builds (dist/webgpu/ and dist/webgl2/ self-boot when hit
          directly). The chooser lives on the assembled root dist/index.html

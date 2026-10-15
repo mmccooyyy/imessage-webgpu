@@ -37,6 +37,7 @@ impl core::fmt::Display for InitError {
 
 /// A shaped text run's render-time record. Buffers are stored in `TextLayer`
 /// in relayout order; `buffer_ix` maps a run to its shaped buffer.
+#[derive(Clone)]
 struct RunSpec {
     buffer_ix: usize,
     run: TextRun,
@@ -265,58 +266,79 @@ impl Renderer {
 
         self.text.clear_buffers();
         let mut measured = Measurements::default();
+        // Parallel to the shapes below: buffer indices returned by shape(),
+        // so run specs never rely on a hand-maintained counter.
+        let mut body_ix = Vec::with_capacity(scene.messages.len());
 
         // Message bodies: shape at the shared wrap width, measure each.
         for msg in &scene.messages {
-            let size = self
+            let (ix, size) = self
                 .text
                 .shape(&msg.text, crate::text::regular_metrics(), wrap);
+            body_ix.push(ix);
             measured.messages.push(Measured {
                 width: size.width,
                 height: size.height,
             });
         }
         // Date pill.
-        if let Some(text) = &scene.date_pill {
-            let size = self
+        let date_ix = match &scene.date_pill {
+            Some(text) => {
+                let (ix, size) = self
+                    .text
+                    .shape(text, crate::text::small_metrics(), f32::MAX);
+                measured.date_pill = Some(Measured {
+                    width: size.width,
+                    height: size.height,
+                });
+                Some(ix)
+            }
+            None => None,
+        };
+        // Presence pills (parallel to scene.pills).
+        let mut pill_ix = Vec::with_capacity(scene.pills.len());
+        for text in &scene.pills {
+            let (ix, size) = self
                 .text
                 .shape(text, crate::text::small_metrics(), f32::MAX);
-            measured.date_pill = Some(Measured {
+            pill_ix.push(ix);
+            measured.pills.push(Measured {
                 width: size.width,
                 height: size.height,
             });
         }
-        // Delivered label.
-        {
-            let size = self
-                .text
+        // Delivered label. Shaped unconditionally — layout() needs the
+        // measurement before it knows whether the label is emitted.
+        let (delivered_ix, delivered_size) =
+            self.text
                 .shape("Delivered", crate::text::small_metrics(), f32::MAX);
-            measured.delivered_label = Measured {
-                width: size.width,
-                height: size.height,
-            };
-        }
+        measured.delivered_label = Measured {
+            width: delivered_size.width,
+            height: delivered_size.height,
+        };
         // Banner text (pinned, screen-space).
         let banner_text = scene.banner.map(layout::banner_text);
 
         self.frame_layout = layout::layout(scene, &measured, (vw, vh));
 
-        // Map shaped buffers → runs. Shape order is: bodies[0..n], pill?,
-        // "Delivered", banner?. layout() pushes one bubble per message, so
-        // bodies map to bubbles 1:1; pills/delivered/banner geometry comes
-        // from the layout output directly.
+        // Map shaped buffers → runs. Run specs reference the buffer indices
+        // returned by shape() above — never a hand-maintained counter, which
+        // desyncs whenever a shaped run has no spec ("Delivered" is always
+        // shaped for measurement but its spec only exists when the label is
+        // emitted). layout() pushes one bubble per message, so bodies map to
+        // bubbles 1:1; pills/delivered/banner geometry comes from the layout
+        // output directly.
         let n_bodies = scene.messages.len();
         let mut specs = Vec::with_capacity(n_bodies + 3);
-        let mut buffer_ix = 0usize;
 
         // Message bodies (1:1 with layout.bubbles).
-        for (_i, b) in self.frame_layout.bubbles.iter().enumerate().take(n_bodies) {
+        for (i, b) in self.frame_layout.bubbles.iter().enumerate().take(n_bodies) {
             let role = match b.side {
                 crate::scene::Side::Incoming => TextRole::IncomingBody,
                 crate::scene::Side::Outgoing => TextRole::OutgoingBody,
             };
             specs.push(RunSpec {
-                buffer_ix,
+                buffer_ix: body_ix[i],
                 run: TextRun {
                     x: b.x + layout::BUBBLE_PAD_H,
                     y: b.y + layout::BUBBLE_PAD_V,
@@ -325,41 +347,50 @@ impl Renderer {
                 clip: Some([b.x + 2.0, b.y + 2.0, b.x + b.w - 2.0, b.y + b.h - 2.0]),
                 pinned: false,
             });
-            buffer_ix += 1;
         }
 
-        // Date pill text.
-        if scene.date_pill.is_some() {
-            if let Some(pill) = self.frame_layout.pills.first().copied() {
-                specs.push(RunSpec {
-                    buffer_ix,
-                    run: TextRun {
-                        x: pill.x + layout::PILL_PAD_H,
-                        y: pill.y + layout::PILL_PAD_V,
-                        role: TextRole::Pill,
-                    },
-                    clip: Some([pill.x, pill.y, pill.x + pill.w, pill.y + pill.h]),
-                    pinned: false,
-                });
-                buffer_ix += 1;
-            }
+        // Pill text. frame_layout.pills is [date?, events…] (layout stacks the
+        // date pill first); the indices match that order.
+        let date_first = date_ix.is_some();
+        for (pill_pos, pill) in self.frame_layout.pills.iter().enumerate() {
+            let ix = if pill_pos == 0 && date_first {
+                date_ix.unwrap_or(usize::MAX)
+            } else {
+                let event_pos = pill_pos - date_first as usize;
+                match pill_ix.get(event_pos) {
+                    Some(&ix) => ix,
+                    None => continue, // defensive: layout emitted an extra pill
+                }
+            };
+            specs.push(RunSpec {
+                buffer_ix: ix,
+                run: TextRun {
+                    x: pill.x + layout::PILL_PAD_H,
+                    y: pill.y + layout::PILL_PAD_V,
+                    role: TextRole::Pill,
+                },
+                clip: Some([pill.x, pill.y, pill.x + pill.w, pill.y + pill.h]),
+                pinned: false,
+            });
         }
 
         // Delivered label (layout() emits at most one, under the last
         // outgoing ack'd message).
         if let Some(run) = self.frame_layout.delivered {
             specs.push(RunSpec {
-                buffer_ix,
+                buffer_ix: delivered_ix,
                 run,
                 clip: None,
                 pinned: false,
             });
-            buffer_ix += 1;
         }
 
-        // 3. Banner (pinned pill, screen space).
+        // Banner (pinned pill, screen space); shaped last, index captured.
+        // Its RunSpec must ALSO be pushed into `specs` — prepare_text renders
+        // only runs from run_specs, so a banner spec held solely in the
+        // self.banner tuple leaves the pill's text undrawn.
         self.banner = banner_text.map(|text| {
-            let size = self
+            let (banner_ix, size) = self
                 .text
                 .shape(text, crate::text::small_metrics(), f32::MAX);
             let m = Measured {
@@ -372,23 +403,17 @@ impl Renderer {
                 y: pill.y + layout::PILL_PAD_V,
                 role: TextRole::Pill,
             };
-            (
-                pill,
-                RunSpec {
-                    buffer_ix,
-                    run,
-                    clip: None,
-                    pinned: true,
-                },
-            )
+            let spec = RunSpec {
+                buffer_ix: banner_ix,
+                run,
+                clip: None,
+                pinned: true,
+            };
+            specs.push(spec.clone());
+            (pill, spec)
         });
 
-        // The buffers vec holds: pill?, bodies…, delivered…, banner? — specs
-        // reference them by creation order. Banner was shaped LAST, so its
-        // buffer_ix must be the next index after all earlier shapes.
         self.run_specs = specs;
-        // Note: delivered labels shaped between bodies and banner keep their
-        // order because layout() pushes Delivered runs after their bubble.
     }
 
     /// Draw one frame. Cheap: no shaping, only instance upload + two passes.
@@ -620,20 +645,6 @@ impl Renderer {
             }
         }
 
-        // Banner pill (screen space, never scrolled).
-        if let Some((pill, _)) = &self.banner {
-            push(
-                &mut vals,
-                pill.x,
-                pill.y,
-                pill.w,
-                pill.h,
-                PILL_BUBBLE,
-                [pill.h * 0.5, pill.h * 0.5, pill.h * 0.5, pill.h * 0.5],
-                0.0,
-            );
-        }
-
         // Date pill.
         for p in &self.frame_layout.pills {
             let y = p.y - scroll;
@@ -648,6 +659,20 @@ impl Renderer {
                 p.h,
                 PILL_BUBBLE,
                 [p.h * 0.5, p.h * 0.5, p.h * 0.5, p.h * 0.5],
+                0.0,
+            );
+        }
+
+        // Banner pill (screen space, drawn last so nothing overdraws it).
+        if let Some((pill, _)) = &self.banner {
+            push(
+                &mut vals,
+                pill.x,
+                pill.y,
+                pill.w,
+                pill.h,
+                PILL_BUBBLE,
+                [pill.h * 0.5, pill.h * 0.5, pill.h * 0.5, pill.h * 0.5],
                 0.0,
             );
         }

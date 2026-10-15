@@ -8,6 +8,7 @@ description = "Browser shell: wgpu + glyphon renderer boot, web-sys glue, DOM ov
 [dependencies]
 chat-protocol = { workspace = true }
 chat-core = { workspace = true }
+serde_json = { workspace = true }
 wgpu = { workspace = true }
 glyphon = { workspace = true }
 cosmic-text = { workspace = true }
@@ -24,8 +25,17 @@ web-sys = { workspace = true, features = [
     "WheelEvent",
     "KeyboardEvent",
     "MediaQueryList",
+    "Location",
+    "HtmlInputElement",
+    "HtmlButtonElement",
+    "CssStyleDeclaration",
+    "Performance",
 ] }
 gloo-net = { workspace = true }
+uuid = { workspace = true }
+# StreamExt::split / SinkExt::send for the gloo-net websocket (gloo-net does
+# not re-export the futures traits). Shell-only; protocol/core stay futures-free.
+futures = { version = "0.3", default-features = false, features = ["std"] }
 console_error_panic_hook = { workspace = true }
 log = { workspace = true }
 wasm-logger = { workspace = true }
