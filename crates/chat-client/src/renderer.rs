@@ -4,7 +4,9 @@
 //! it again (spec §6.6). The app layer never touches wgpu types.
 
 use crate::bubbles::BubblePass;
-use crate::layout::{self, Layout, Measured, Measurements, PillGeom, TextRole, TextRun};
+use crate::layout::{
+    self, Layout, Measured, Measurements, PillGeom, StatusKind, TextRole, TextRun,
+};
 use crate::scene::Scene;
 use crate::text::TextLayer;
 use web_sys::HtmlCanvasElement;
@@ -307,14 +309,21 @@ impl Renderer {
                 height: size.height,
             });
         }
-        // Delivered label. Shaped unconditionally — layout() needs the
-        // measurement before it knows whether the label is emitted.
+        // Status labels. Shaped unconditionally — layout() needs the
+        // measurements before it knows whether either is emitted.
         let (delivered_ix, delivered_size) =
             self.text
                 .shape("Delivered", crate::text::small_metrics(), f32::MAX);
         measured.delivered_label = Measured {
             width: delivered_size.width,
             height: delivered_size.height,
+        };
+        let (sending_ix, sending_size) =
+            self.text
+                .shape("Sending…", crate::text::small_metrics(), f32::MAX);
+        measured.sending_label = Measured {
+            width: sending_size.width,
+            height: sending_size.height,
         };
         // Banner text (pinned, screen-space).
         let banner_text = scene.banner.map(layout::banner_text);
@@ -374,11 +383,15 @@ impl Renderer {
             });
         }
 
-        // Delivered label (layout() emits at most one, under the last
-        // outgoing ack'd message).
-        if let Some(run) = self.frame_layout.delivered {
+        // Status label (layout() emits at most one, under the last outgoing
+        // message: "Delivered" or, while Reconnecting, "Sending…").
+        if let Some(run) = self.frame_layout.status {
+            let kind = self.frame_layout.status_kind;
             specs.push(RunSpec {
-                buffer_ix: delivered_ix,
+                buffer_ix: match kind {
+                    StatusKind::Delivered => delivered_ix,
+                    StatusKind::Sending => sending_ix,
+                },
                 run,
                 clip: None,
                 pinned: false,

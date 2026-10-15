@@ -166,6 +166,7 @@ dependencies = [
  "futures",
  "gloo-net",
  "glyphon",
+ "js-sys",
  "log",
  "naga",
  "serde_json",

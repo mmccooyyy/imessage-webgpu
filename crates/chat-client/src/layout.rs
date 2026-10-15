@@ -36,6 +36,16 @@ pub const PILL_LINE_HEIGHT: f32 = 15.0;
 pub const PILL_TOP: f32 = 10.0;
 /// Gap between a bubble and its "Delivered" label.
 pub const DELIVERED_GAP: f32 = 3.0;
+
+/// Which gray status label rides under the last outgoing bubble.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum StatusKind {
+    /// Ack arrived — the terminal state for v1 (spec §5).
+    #[default]
+    Delivered,
+    /// In-flight while Reconnecting (spec §5 mock: "sending…").
+    Sending,
+}
 /// Left/right breathing room for edge-to-edge bubbles.
 pub const CONV_MARGIN: f32 = 14.0;
 
@@ -55,6 +65,7 @@ pub struct Measurements {
     /// Parallel to `scene.pills` (presence pills under the date pill).
     pub pills: Vec<Measured>,
     pub delivered_label: Measured,
+    pub sending_label: Measured,
 }
 
 /// One bubble quad in content space (before scroll), CSS px.
@@ -109,8 +120,10 @@ pub struct Layout {
     /// Typing-dots bubble, if the scene shows one.
     pub typing_bubble: Option<BubbleGeom>,
     pub pills: Vec<PillGeom>,
-    /// "Delivered" label position, under the last outgoing ack'd message.
-    pub delivered: Option<TextRun>,
+    /// Status label ("Delivered" / "Sending…") under the last outgoing
+    /// message — kind in [`status_kind`](Layout::status_kind).
+    pub status: Option<TextRun>,
+    pub status_kind: StatusKind,
 }
 
 /// Compute the wrap width cosmic-text should shape message text at: the max
@@ -232,17 +245,29 @@ pub fn layout(scene: &Scene, measured: &Measurements, viewport: (f32, f32)) -> L
             });
             group_y += h;
 
-            // "Delivered" rides under the final outgoing message of the
-            // conversation when its ack arrived (spec §5).
+            // Status under the final outgoing message of the conversation:
+            // "Delivered" once ack'd, "Sending…" while Reconnecting, nothing
+            // for a live in-flight send (state table: pending shows none).
             let is_last_message = k + 1 == scene.messages.len();
-            if is_last_message && side == Side::Outgoing && scene.messages[k].delivered {
-                let lw = measured.delivered_label.width;
-                out.delivered = Some(TextRun {
-                    x: x + w - lw,
-                    y: group_y + DELIVERED_GAP,
-                    role: TextRole::Delivered,
-                });
-                group_y += measured.delivered_label.height + DELIVERED_GAP;
+            if is_last_message && side == Side::Outgoing {
+                let kind = match (scene.messages[k].delivered, scene.banner) {
+                    (true, _) => Some(StatusKind::Delivered),
+                    (false, Some(Banner::Reconnecting)) => Some(StatusKind::Sending),
+                    _ => None,
+                };
+                if let Some(kind) = kind {
+                    let m = match kind {
+                        StatusKind::Delivered => measured.delivered_label,
+                        StatusKind::Sending => measured.sending_label,
+                    };
+                    out.status = Some(TextRun {
+                        x: x + w - m.width,
+                        y: group_y + DELIVERED_GAP,
+                        role: TextRole::Delivered,
+                    });
+                    out.status_kind = kind;
+                    group_y += m.height + DELIVERED_GAP;
+                }
             }
 
             if k < j {
@@ -384,9 +409,39 @@ mod tests {
         let inner_w = 400.0 - 2.0 * CONV_MARGIN;
         assert!((b.x - (CONV_MARGIN + inner_w - b.w)).abs() < 0.01);
         // Delivered label sits under the bubble, right-aligned to it.
-        let label = out.delivered.expect("delivered run present");
+        let label = out.status.expect("delivered run present");
         assert!(label.y > b.y + b.h);
         assert!((label.x + 50.0 - (b.x + b.w)).abs() < 0.01);
+        assert_eq!(out.status_kind, StatusKind::Delivered);
+    }
+
+    // Spec §5 mock: the in-flight bubble shows "sending…" while
+    // Reconnecting, and nothing while live.
+    #[test]
+    fn sending_label_only_while_reconnecting() {
+        let scene = |banner| Scene {
+            messages: vec![msg("a", Side::Outgoing, false)],
+            banner,
+            ..Default::default()
+        };
+        let measured = Measurements {
+            messages: vec![m(100.0, 22.0)],
+            sending_label: m(46.0, 12.0),
+            ..Default::default()
+        };
+        let live = layout(&scene(None), &measured, (400.0, 800.0));
+        assert!(live.status.is_none(), "live in-flight send has no label");
+
+        let reconnecting = layout(
+            &scene(Some(Banner::Reconnecting)),
+            &measured,
+            (400.0, 800.0),
+        );
+        let b = reconnecting.bubbles[0];
+        let label = reconnecting.status.expect("sending label present");
+        assert!(label.y > b.y + b.h);
+        assert!((label.x + 46.0 - (b.x + b.w)).abs() < 0.01);
+        assert_eq!(reconnecting.status_kind, StatusKind::Sending);
     }
 
     #[test]

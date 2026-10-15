@@ -92,6 +92,17 @@ fn name_from_query() -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+/// The conversation-start pill label (spec §5 mock: "Today 4:12 PM"), in
+/// the browser's local time via `js_sys::Date` (wasm has no TZ database).
+fn session_time_label() -> String {
+    let d = js_sys::Date::new_0();
+    let (h24, min) = (d.get_hours(), d.get_minutes());
+    let ampm = if h24 >= 12 { "PM" } else { "AM" };
+    let h = h24 % 12;
+    let h = if h == 0 { 12 } else { h };
+    format!("Today {h}:{min:02} {ampm}")
+}
+
 /// Derive the `/ws` URL from the page's location (spec §5.4: same origin,
 /// scheme-derived — never hard-coded).
 fn page_ws_url() -> String {
@@ -191,6 +202,9 @@ struct App {
     net_rx: mpsc::Receiver<NetEvent>,
     /// Presentation-only transcript pills ("Sam joined" / "Sam left").
     presence: ux::PresenceLog,
+    /// Conversation-start pill label ("Today 4:12 PM"), captured at the
+    /// first connect and kept across reconnects (spec §5 mock).
+    date_label: Option<String>,
     overlay: Overlay,
 
     // ── outgoing typing throttle (shell-owned transmission policy) ──
@@ -255,6 +269,7 @@ impl App {
             net_tx,
             net_rx,
             presence: ux::PresenceLog::default(),
+            date_label: None,
             typing_active: false,
             last_typing_on: None,
             last_keystroke: 0,
@@ -271,6 +286,13 @@ impl App {
         }
 
         let app = Rc::new(RefCell::new(app));
+
+        // `?name=` auto-join: kick the first connection exactly as the join
+        // card would — the store's tick only retries from Reconnecting, so
+        // without this a scripted demo hangs in Connecting forever.
+        if app.borrow().name.is_some() {
+            app.borrow_mut().connect();
+        }
         App::wire_events(&app, &document, &window);
         APP.with(|slot| *slot.borrow_mut() = Some(Rc::clone(&app)));
 
@@ -511,7 +533,15 @@ impl App {
             self.typing_active = false;
             self.send_frame(ClientFrame::Typing { on: false });
         }
-        let effects = self.store.send(text, cmid, now);
+        let effects = self.store.send(text.clone(), cmid, now);
+        if effects.is_empty() {
+            // The store refused the send (initial Connecting window between
+            // reconnect attempts). Restore the draft — a mid-attempt refusal
+            // must never eat the user's text silently (spec §5: the input
+            // stays usable while reconnecting).
+            self.overlay.set_msg_input(&text);
+            return;
+        }
         self.run_effects(effects, now);
     }
 
@@ -533,6 +563,9 @@ impl App {
         let Some(name) = self.name.clone() else {
             return; // no name yet — the join card owns first contact
         };
+        // The time pill stamps when this chat session began; reconnects
+        // keep the original stamp (get_or_insert).
+        self.date_label.get_or_insert_with(session_time_label);
         // Back to Connecting (also clears ConnectingFailed so the store is
         // consistent even before the first frame event arrives).
         let _ = self.store.apply(Event::SocketOpened, now_ms());
@@ -671,7 +704,11 @@ impl App {
         } else {
             others.join(", ")
         };
-        self.overlay.sync(input_enabled, &presence_text);
+        // Spec §5 mock: the send affordance grays while Reconnecting —
+        // visually dimmed but still clickable (sends queue locally).
+        let send_dimmed = matches!(conn, ConnState::Reconnecting { .. });
+        self.overlay
+            .sync(input_enabled, send_dimmed, &presence_text);
     }
 
     fn frame(&mut self, ts: f64) {
@@ -727,7 +764,7 @@ impl App {
         }
 
         // 4. Store → scene; scene change → relayout (shaping happens only here).
-        self.scene = ux::build_scene(&self.store, &self.presence, Some("Today"), now);
+        self.scene = ux::build_scene(&self.store, &self.presence, self.date_label.as_deref(), now);
         if !self.scene.same_as(&self.last_scene) {
             self.last_scene = self.scene.clone();
             self.renderer.relayout(&self.scene);
