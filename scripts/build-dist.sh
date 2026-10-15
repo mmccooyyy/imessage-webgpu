@@ -25,10 +25,11 @@ entry_webgl2=$(ls dist/webgl2 | grep -E '^chat-client-.*\.js$' | head -1)
   exit 1
 }
 
-# Root chooser page (spec art_d3wTgg6t §2.4): feature-detect navigator.gpu,
-# import the matching bundle's entry (each entry self-boots on import), and
-# swap to the other bundle if the first fails to load — navigator.gpu can
-# exist while adapter acquisition still fails (MDN). One retry, then stop.
+# Root chooser page (spec art_d3wTgg6t §2.4): feature-detect navigator.gpu
+# and redirect to the matching bundle's own page — each bundle's trunk
+# index.html carries the full DOM overlay (nav bar, join card, input) the
+# wasm app requires, and handles a failed adapter by redirecting to the
+# other bundle (sessionStorage-guarded, one attempt).
 cat > dist/index.html <<HTML
 <!doctype html>
 <html lang="en">
@@ -36,38 +37,10 @@ cat > dist/index.html <<HTML
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>iMessage</title>
-    <style>
-      html, body { margin: 0; height: 100%; background: #fff; overflow: hidden; }
-      #app { display: block; width: 100%; height: 100%; touch-action: none; }
-      #overlay {
-        position: fixed; inset: auto 0 0 0; padding: 8px 16px;
-        font: 14px/1.4 system-ui, sans-serif; color: #6b7280;
-        pointer-events: none; user-select: none;
-      }
-    </style>
   </head>
   <body>
-    <canvas id="app" aria-label="conversation canvas"></canvas>
-    <div id="overlay"></div>
-    <script type="module">
-      const entries = {
-        webgpu: '/webgpu/${entry_webgpu}',
-        webgl2: '/webgl2/${entry_webgl2}',
-      };
-      // trunk's entry default-exports the wasm-bindgen init fn — call it
-      // with the sibling .wasm path, or nothing runs (silent blank canvas).
-      const boot = async (which) => {
-        const mod = await import(entries[which]);
-        await mod.default({ module_or_path: entries[which].replace(/\.js$/, '_bg.wasm') });
-      };
-      const first = navigator.gpu ? 'webgpu' : 'webgl2';
-      const second = navigator.gpu ? 'webgl2' : 'webgpu';
-      boot(first).catch((err) => {
-        console.error(first + ' bundle failed to load:', err);
-        boot(second).catch((e2) =>
-          console.error(second + ' bundle failed too:', e2),
-        );
-      });
+    <script>
+      location.replace(navigator.gpu ? '/webgpu/' : '/webgl2/');
     </script>
   </body>
 </html>

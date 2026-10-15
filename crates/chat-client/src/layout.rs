@@ -140,12 +140,21 @@ fn clamp_w(w: f32, max_w: f32) -> f32 {
     w.min(max_w)
 }
 
+/// The banner pill pins to the viewport top (banner_pill: y=10, h≈25) and
+/// draws before content — the pill stack must start below it, or the pills
+/// overdraw the banner during reconnects.
+const BANNER_STACK_TOP: f32 = 45.0;
+
 /// Lay out a scene. `viewport` is the conversation surface size in CSS px.
 pub fn layout(scene: &Scene, measured: &Measurements, viewport: (f32, f32)) -> Layout {
     let max_bubble_w = MAX_BUBBLE_FRACTION * viewport.0;
     let inner_w = viewport.0 - 2.0 * CONV_MARGIN;
     let mut out = Layout::default();
-    let mut y = 0.0f32;
+    let mut y = if scene.banner.is_some() {
+        BANNER_STACK_TOP
+    } else {
+        0.0
+    };
 
     // Date pill.
     if let (Some(_), Some(m)) = (&scene.date_pill, measured.date_pill) {
